@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ¿Y si sí me lo gané? — Mi Boleta
 
-## Getting Started
+Frontend para administrar boletas, rifas, loterías y sorteos, con verificación de resultados en tiempo real contra el portal de datos abiertos de Colombia.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+| Capa | Tecnología |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| Lenguaje | TypeScript (strict) |
+| Estado servidor | TanStack Query v5 |
+| Estado UI/auth | Zustand v5 + persist |
+| HTTP | Axios + interceptores |
+| Formularios | React Hook Form + Zod v4 |
+| Estilos | Tailwind CSS v4 |
+| Animaciones | Framer Motion |
+| Íconos | Lucide React |
+| Notificaciones | React Hot Toast |
+| Fechas | date-fns |
+| Tests | Vitest + React Testing Library |
+
+## Arquitectura (Clean Architecture)
+
+```
+src/
+├── domain/          # Entidades, repos (interfaces), errores, value-objects
+├── application/     # Ports, DTOs, use cases
+├── infrastructure/  # httpClient, datosGovClient, repos HTTP, storage, DI container
+└── presentation/    # Stores, hooks, components, guards, providers
+app/                 # Páginas (Next.js App Router)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Regla de dependencias:** `domain` ← `application` ← `infrastructure` ← `presentation` ← `app`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Dos clientes HTTP completamente separados:
+- `httpClient` — backend propio (`mi-boleta-api`), con interceptores de auth y redirect a `/login`
+- `datosGovClient` — API pública de `datos.gov.co` (Socrata), sin auth, sin interceptores
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Variables de entorno
 
-## Learn More
+```env
+# Backend propio
+NEXT_PUBLIC_API_BASE_URL=https://mi-boleta-api-y9dv.onrender.com/api/v1
 
-To learn more about Next.js, take a look at the following resources:
+# API de datos abiertos (Socrata)
+NEXT_PUBLIC_DATOS_GOV_BASE_URL=https://www.datos.gov.co
+NEXT_PUBLIC_DATOS_GOV_LOTTERY_DATASET_ID=i3kx-3zps
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Opcional — sube rate limit de Socrata (server-side only, sin NEXT_PUBLIC_)
+DATOS_GOV_APP_TOKEN=
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Copiar `.env.example` a `.env.local` y completar. No commitear `.env.local`.
 
-## Deploy on Vercel
+## Cómo correr
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm install
+npm run dev        # http://localhost:3000
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Scripts
+
+```bash
+npm run dev        # servidor de desarrollo
+npm run build      # build de producción
+npm run start      # servidor de producción
+npm run typecheck  # verificación de tipos
+npm run lint       # ESLint
+npm run test       # Vitest (watch)
+npm run test:run   # Vitest (single run)
+```
+
+## Páginas
+
+| Ruta | Descripción | Auth |
+|---|---|---|
+| `/login` | Inicio de sesión | Pública |
+| `/register` | Registro de usuario | Pública |
+| `/dashboard` | Stats + próximos sorteos + pendientes | Requiere login |
+| `/tickets` | Lista CRUD con filtros y paginación | Requiere login |
+| `/tickets/new` | Crear boleta | Requiere login |
+| `/tickets/[id]` | Detalle + verificar resultado | Requiere login |
+| `/tickets/[id]/edit` | Editar boleta | Requiere login |
+| `/resultados` | Últimos resultados de loterías (datos.gov.co) | Requiere login |
+| `/admin` | Panel admin — todos los tickets | Requiere `role=admin` |
+
+## Integración de resultados (datos.gov.co)
+
+La página `/resultados` y el botón "Verificar resultado" en el detalle de cada ticket consumen la API pública [Socrata Open Data API](https://dev.socrata.com/) de Colombia.
+
+- **Dataset:** `i3kx-3zps` — resultados históricos de loterías colombianas
+- **Endpoint:** `https://www.datos.gov.co/resource/i3kx-3zps.json`
+- **Sin autenticación** para lectura (rate limit ~1000 req/h por IP). Con `DATOS_GOV_APP_TOKEN` el límite es mayor.
+- La verificación es **solo lectura** — nunca muta el estado del ticket automáticamente. El usuario decide.
+
+Datasets alternativos disponibles:
+- Lotería de Bogotá: `h5dm-9t39`
+- Lotería Santander: `4zwu-ra3f`
+
+## API
+
+Backend desplegado: `https://mi-boleta-api-y9dv.onrender.com/api/v1`
+
+Para acceder al panel `/admin`, un usuario debe tener `role = 'admin'`. Promover vía SQL en la DB del backend:
+
+```sql
+UPDATE users SET role = 'admin' WHERE email = 'tu@email.com';
+```
